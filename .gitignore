@@ -1,0 +1,4 @@
+# personal / runtime data — don't publish
+todos.json
+speedlog.jsonl
+__pycache__/
