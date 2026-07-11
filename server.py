@@ -187,7 +187,8 @@ class Handler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/news":
             now = time.time()
-            if _cache["data"] is None or now - _cache["ts"] > CACHE_TTL:
+            ttl = CACHE_TTL if _cache["data"] else 45
+            if _cache["data"] is None or now - _cache["ts"] > ttl:
                 _cache["data"] = fetch_headlines()
                 _cache["ts"] = now
             self._send_json({"headlines": _cache["data"]})

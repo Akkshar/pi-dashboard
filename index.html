@@ -238,9 +238,11 @@
         const lo = Math.round(d.daily.temperature_2m_min[i]);
         fc.innerHTML += `<div class="day"><div class="d">${day}</div><div>${wIcon(d.daily.weather_code[i])}</div><div>${hi}°/${lo}°</div></div>`;
       }
-    }catch(e){ document.getElementById('weatherNow').textContent = 'Weather unavailable'; }
+      return true;
+    }catch(e){ document.getElementById('weatherNow').textContent = 'Weather unavailable'; return false; }
   }
-  weather(); setInterval(weather,15*60*1000);
+  async function weatherLoop(){ const ok = await weather(); setTimeout(weatherLoop, ok ? 15*60*1000 : 30*1000); }
+  weatherLoop();
   document.getElementById('weatherCard').addEventListener('click',()=>{
     document.getElementById('forecast').classList.toggle('open');
   });
@@ -265,7 +267,7 @@
     try{
       const d = await (await fetch('/news')).json();
       const ul = document.getElementById('newsList');
-      if(!d.headlines || !d.headlines.length){ ul.innerHTML = '<li style="padding:9px 4px">News unavailable</li>'; return; }
+      if(!d.headlines || !d.headlines.length){ ul.innerHTML = '<li style="padding:9px 4px">News unavailable</li>'; return false; }
       ul.innerHTML = '';
       d.headlines.forEach(it=>{
         const li = document.createElement('li');
@@ -274,9 +276,11 @@
           : `<div style="padding:9px 4px">${it.title}<span class="src">${it.source}</span></div>`;
         ul.appendChild(li);
       });
-    }catch(e){}
+      return true;
+    }catch(e){ return false; }
   }
-  loadNews(); setInterval(loadNews,10*60*1000);
+  async function newsLoop(){ const ok = await loadNews(); setTimeout(newsLoop, ok ? 10*60*1000 : 30*1000); }
+  newsLoop();
 
   // ---- speed test history ----
   let speedHist = [];
