@@ -64,6 +64,12 @@
   #speedPop .t { font-size:.66rem; opacity:.7; margin-bottom:4px; }
   #netRow { cursor:pointer; }
   #newsCard { position:fixed; right:16px; top:16px; bottom:16px; width:340px; display:flex; flex-direction:column; }
+  #briefWrap { border-bottom:1px solid rgba(255,255,255,0.14); padding-bottom:7px; margin-bottom:5px; flex:none; }
+  #briefHead { cursor:pointer; margin-bottom:2px; }
+  #briefList { list-style:none; margin-top:2px; }
+  #briefList li { font-size:.78rem; line-height:1.35; padding:3px 0 3px 14px; position:relative; opacity:.95; }
+  #briefList li::before { content:'▪'; position:absolute; left:2px; color:#9db8ff; }
+  #briefWrap.closed #briefList { display:none; }
   #newsList { list-style:none; flex:1; overflow-y:auto; }
   #newsList li { border-bottom:1px solid rgba(255,255,255,0.12); }
   #newsList li:last-child { border-bottom:none; }
@@ -168,6 +174,10 @@
   </div>
 
   <div class="widget" id="newsCard">
+    <div id="briefWrap">
+      <h2 id="briefHead">Briefing <span class="hint" id="briefTime">· waiting for first digest</span></h2>
+      <ul id="briefList"></ul>
+    </div>
     <h2>News <span class="hint">· tap a headline</span></h2>
     <ul id="newsList"><li style="padding:9px 4px">Loading…</li></ul>
   </div>
@@ -281,6 +291,27 @@
   }
   async function newsLoop(){ const ok = await loadNews(); setTimeout(newsLoop, ok ? 10*60*1000 : 30*1000); }
   newsLoop();
+
+  // ---- AI morning briefing ----
+  const briefWrap = document.getElementById('briefWrap');
+  document.getElementById('briefHead').addEventListener('click', ()=>{
+    briefWrap.classList.toggle('closed');
+    localStorage.setItem('briefClosed', briefWrap.classList.contains('closed') ? '1' : '');
+  });
+  if(localStorage.getItem('briefClosed')) briefWrap.classList.add('closed');
+  async function loadDigest(){
+    try{
+      const d = await (await fetch('/digest')).json();
+      if(!d.bullets || !d.bullets.length) return false;
+      const ul = document.getElementById('briefList'); ul.innerHTML = '';
+      d.bullets.forEach(b=>{ const li = document.createElement('li'); li.textContent = b; ul.appendChild(li); });
+      document.getElementById('briefTime').textContent =
+        '· ' + new Date(d.generated*1000).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) + ' · tap to fold';
+      return true;
+    }catch(e){ return false; }
+  }
+  async function digestLoop(){ const ok = await loadDigest(); setTimeout(digestLoop, ok ? 30*60*1000 : 30*1000); }
+  digestLoop();
 
   // ---- speed test history ----
   let speedHist = [];

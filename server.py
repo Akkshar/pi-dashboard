@@ -31,6 +31,7 @@ SYSTEM_PROMPT = ("You are a helpful assistant running locally on a Raspberry Pi 
 
 SPEEDLOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "speedlog.jsonl")
 TODOFILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "todos.json")
+DIGESTFILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "digest.json")
 
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 _cache = {"data": None, "ts": 0.0}
@@ -200,6 +201,12 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({"history": speed_history()})
         elif path == "/todos":
             self._send_json({"todos": load_todos()})
+        elif path == "/digest":
+            try:
+                with open(DIGESTFILE) as f:
+                    self._send_json(json.load(f))
+            except Exception:
+                self._send_json({"generated": None, "bullets": []})
         elif path == "/power":
             q = parse_qs(urlparse(self.path).query)
             if q.get("do", [""])[0] == "off":
