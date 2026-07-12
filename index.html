@@ -64,18 +64,11 @@
   #speedPop .t { font-size:.66rem; opacity:.7; margin-bottom:4px; }
   #netRow { cursor:pointer; }
   #newsCard { position:fixed; right:16px; top:16px; bottom:16px; width:340px; display:flex; flex-direction:column; }
-  #briefWrap { border-bottom:1px solid rgba(255,255,255,0.14); padding-bottom:7px; margin-bottom:5px; flex:none; }
-  #briefHead { cursor:pointer; margin-bottom:2px; }
-  #briefList { list-style:none; margin-top:2px; }
-  #briefList li { font-size:.78rem; line-height:1.35; padding:3px 0 3px 14px; position:relative; opacity:.95; }
+  #briefList { list-style:none; flex:1; overflow-y:auto; margin-top:4px; }
+  #briefList li { font-size:.84rem; line-height:1.4; padding:5px 0 5px 15px; position:relative; opacity:.95;
+    border-bottom:1px solid rgba(255,255,255,0.08); }
+  #briefList li:last-child { border-bottom:none; }
   #briefList li::before { content:'▪'; position:absolute; left:2px; color:#9db8ff; }
-  #briefWrap.closed #briefList { display:none; }
-  #newsList { list-style:none; flex:1; overflow-y:auto; }
-  #newsList li { border-bottom:1px solid rgba(255,255,255,0.12); }
-  #newsList li:last-child { border-bottom:none; }
-  #newsList a { color:#fff; text-decoration:none; display:block; padding:9px 4px; font-size:.9rem; }
-  #newsList a:hover { color:#9db8ff; }
-  #newsList .src { display:block; font-size:.68rem; opacity:.6; margin-top:2px; }
 
   #remCard {
     position:fixed; left:262px; right:372px; top:16px; bottom:64px;
@@ -174,12 +167,8 @@
   </div>
 
   <div class="widget" id="newsCard">
-    <div id="briefWrap">
-      <h2 id="briefHead">Briefing <span class="hint" id="briefTime">· waiting for first digest</span></h2>
-      <ul id="briefList"></ul>
-    </div>
-    <h2>News <span class="hint">· tap a headline</span></h2>
-    <ul id="newsList"><li style="padding:9px 4px">Loading…</li></ul>
+    <h2>Daily Brief <span class="hint" id="briefTime">· waiting for first brief</span></h2>
+    <ul id="briefList"><li style="border:none">Loading…</li></ul>
   </div>
 
   <div id="btnRow">
@@ -231,25 +220,36 @@
       85:'Snow showers',86:'Snow showers',95:'Thunderstorm',96:'Thunderstorm',99:'Thunderstorm'};
     return m[c]||'';
   }
+  let weatherShown = false;
+  function renderWeather(d){
+    const t = Math.round(d.current.temperature_2m);
+    const c = d.current.weather_code;
+    document.getElementById('weatherNow').innerHTML =
+      `${t}${SYM} <span class="cond">${wText(c)} ${wIcon(c)}</span>`;
+    const fc = document.getElementById('forecast'); fc.innerHTML = '';
+    for(let i=1;i<d.daily.time.length;i++){
+      const day = new Date(d.daily.time[i]+'T00:00').toLocaleDateString(undefined,{weekday:'short'});
+      const hi = Math.round(d.daily.temperature_2m_max[i]);
+      const lo = Math.round(d.daily.temperature_2m_min[i]);
+      fc.innerHTML += `<div class="day"><div class="d">${day}</div><div>${wIcon(d.daily.weather_code[i])}</div><div>${hi}°/${lo}°</div></div>`;
+    }
+    weatherShown = true;
+  }
+  // show last-known weather instantly (Pi often boots before it wins the portal session)
+  try{ const c = JSON.parse(localStorage.getItem('weatherCache')); if(c) renderWeather(c); }catch(e){}
   async function weather(){
     try{
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}` +
         `&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min` +
         `&forecast_days=4&timezone=auto&temperature_unit=${UNITS}`;
       const d = await (await fetch(url)).json();
-      const t = Math.round(d.current.temperature_2m);
-      const c = d.current.weather_code;
-      document.getElementById('weatherNow').innerHTML =
-        `${t}${SYM} <span class="cond">${wText(c)} ${wIcon(c)}</span>`;
-      const fc = document.getElementById('forecast'); fc.innerHTML = '';
-      for(let i=1;i<d.daily.time.length;i++){
-        const day = new Date(d.daily.time[i]+'T00:00').toLocaleDateString(undefined,{weekday:'short'});
-        const hi = Math.round(d.daily.temperature_2m_max[i]);
-        const lo = Math.round(d.daily.temperature_2m_min[i]);
-        fc.innerHTML += `<div class="day"><div class="d">${day}</div><div>${wIcon(d.daily.weather_code[i])}</div><div>${hi}°/${lo}°</div></div>`;
-      }
+      renderWeather(d);
+      try{ localStorage.setItem('weatherCache', JSON.stringify(d)); }catch(e){}
       return true;
-    }catch(e){ document.getElementById('weatherNow').textContent = 'Weather unavailable'; return false; }
+    }catch(e){
+      if(!weatherShown) document.getElementById('weatherNow').textContent = 'Weather unavailable';
+      return false;
+    }
   }
   async function weatherLoop(){ const ok = await weather(); setTimeout(weatherLoop, ok ? 15*60*1000 : 30*1000); }
   weatherLoop();
@@ -273,32 +273,7 @@
   }
   loadStats(); setInterval(loadStats,3000);
 
-  async function loadNews(){
-    try{
-      const d = await (await fetch('/news')).json();
-      const ul = document.getElementById('newsList');
-      if(!d.headlines || !d.headlines.length){ ul.innerHTML = '<li style="padding:9px 4px">News unavailable</li>'; return false; }
-      ul.innerHTML = '';
-      d.headlines.forEach(it=>{
-        const li = document.createElement('li');
-        li.innerHTML = it.link
-          ? `<a href="${it.link}" target="_blank" rel="noopener">${it.title}<span class="src">${it.source}</span></a>`
-          : `<div style="padding:9px 4px">${it.title}<span class="src">${it.source}</span></div>`;
-        ul.appendChild(li);
-      });
-      return true;
-    }catch(e){ return false; }
-  }
-  async function newsLoop(){ const ok = await loadNews(); setTimeout(newsLoop, ok ? 10*60*1000 : 30*1000); }
-  newsLoop();
-
-  // ---- AI morning briefing ----
-  const briefWrap = document.getElementById('briefWrap');
-  document.getElementById('briefHead').addEventListener('click', ()=>{
-    briefWrap.classList.toggle('closed');
-    localStorage.setItem('briefClosed', briefWrap.classList.contains('closed') ? '1' : '');
-  });
-  if(localStorage.getItem('briefClosed')) briefWrap.classList.add('closed');
+  // ---- AI daily brief ----
   async function loadDigest(){
     try{
       const d = await (await fetch('/digest')).json();
@@ -306,7 +281,7 @@
       const ul = document.getElementById('briefList'); ul.innerHTML = '';
       d.bullets.forEach(b=>{ const li = document.createElement('li'); li.textContent = b; ul.appendChild(li); });
       document.getElementById('briefTime').textContent =
-        '· ' + new Date(d.generated*1000).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) + ' · tap to fold';
+        '· ' + new Date(d.generated*1000).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'});
       return true;
     }catch(e){ return false; }
   }

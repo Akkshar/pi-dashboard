@@ -13,14 +13,14 @@ import urllib.request
 from server import MODEL, OLLAMA, fetch_headlines
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "digest.json")
-BULLETS = 4
+BULLETS = 8
 
 PROMPT = (
-    "You are the news editor for a personal morning briefing in India. "
-    "Below are this morning's raw headlines from several feeds. Write exactly {n} bullet points "
-    "summarising the most important distinct stories: lead with the biggest story, prefer a mix of "
-    "India, world and tech news, plain factual language, one sentence of at most 20 words per bullet. "
-    "Ignore clickbait, celebrity gossip and duplicate stories.\n\n"
+    "You are the news editor for a personal daily brief in India. The reader gets ALL their news "
+    "from this brief, so cover everything that matters. Below are the raw headlines from several feeds. "
+    "Write exactly {n} bullet points covering the main distinct stories of the day: lead with the "
+    "biggest story, cover India, world, tech and business, plain factual language, one sentence of "
+    "at most 18 words per bullet. Ignore clickbait, celebrity gossip and duplicate stories.\n\n"
     'Reply as JSON: {{"bullets": ["...", "..."]}}\n\nHEADLINES:\n{headlines}'
 )
 
