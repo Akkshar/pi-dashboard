@@ -14,6 +14,11 @@ from server import MODEL, OLLAMA, fetch_headlines
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "digest.json")
 BULLETS = 8
+MIN_AGE = 3 * 3600  # cron tries every 20 min; only regenerate if the brief is older than this
+
+
+def log(msg):
+    print(time.strftime("%F %T"), msg)
 
 PROMPT = (
     "You are the news editor for a personal daily brief in India. The reader gets ALL their news "
@@ -26,9 +31,15 @@ PROMPT = (
 
 
 def main():
+    if "--force" not in sys.argv:
+        try:
+            if time.time() - os.path.getmtime(OUT) < MIN_AGE:
+                return 0  # fresh enough - exit silently so the log stays readable
+        except OSError:
+            pass
     headlines = fetch_headlines()
     if len(headlines) < 5:
-        print("not enough headlines (offline?) - keeping old digest")
+        log("not enough headlines (offline?) - keeping old digest")
         return 1
     listing = "\n".join(f"- {h['title']} ({h['source']})" for h in headlines)
     payload = json.dumps({
@@ -48,13 +59,13 @@ def main():
         bullets = [l.strip("-*• ").strip() for l in reply.splitlines() if l.strip()]
     bullets = bullets[:BULLETS]
     if not bullets:
-        print("model returned nothing usable - keeping old digest")
+        log("model returned nothing usable - keeping old digest")
         return 1
     tmp = OUT + ".tmp"
     with open(tmp, "w") as f:
         json.dump({"generated": int(time.time()), "bullets": bullets}, f)
     os.replace(tmp, OUT)
-    print(f"digest written: {len(bullets)} bullets")
+    log(f"digest written: {len(bullets)} bullets")
     return 0
 
 
