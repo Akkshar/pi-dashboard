@@ -141,6 +141,7 @@ with sync_playwright() as p:
         page.wait_for_timeout(800)
         check("reminder deleted via UI", page.locator("#remList li", has_text=marker).count() == 0)
 
+    bl0 = get("/backlight").get("pct") or 0
     l0 = (page.text_content("#dimLabel") or "").strip()
     page.click("#dimBtn")
     page.wait_for_timeout(900)
@@ -148,8 +149,8 @@ with sync_playwright() as p:
     check("dim button toggles", l0 != l1, f"{l0} -> {l1}")
     page.click("#dimBtn")
     page.wait_for_timeout(900)
-    bl2 = get("/backlight")
-    check("backlight restored to full", (bl2.get("pct") or 0) >= 90, f"{bl2.get('pct')}%")
+    bl2 = get("/backlight").get("pct") or 0
+    check("backlight restored to initial", abs(bl2 - bl0) <= 5, f"{bl0}% -> {bl2}%")
 
     page.click("#powerBtn")
     page.wait_for_timeout(300)

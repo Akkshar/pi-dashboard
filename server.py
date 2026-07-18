@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-"""Dashboard server: /news, /stats, /speed, /backlight, /chat."""
+"""Dashboard server, Flask edition: /news, /stats, /speed, /todos, /digest,
+/backlight, /power, /chat + static files.
+
+Same endpoints and module exports as the original http.server version, so
+digest.py's `from server import ...` and all clients keep working unchanged.
+"""
 import glob
 import json
+import logging
 import os
 import subprocess
 import time
 import urllib.request
-from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
 
 import feedparser
+from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
 # ===== Your news sources: (Display name, RSS feed URL) =====
 FEEDS = [
@@ -21,7 +26,7 @@ FEEDS = [
 ]
 ITEMS_PER_FEED = 6
 CACHE_TTL = 300
-PORT = 8080
+PORT = int(os.environ.get("PORT", 8080))
 DIM_MIN = 1
 
 MODEL = "llama3.2:3b"
@@ -29,13 +34,16 @@ OLLAMA = "http://127.0.0.1:11434"
 SYSTEM_PROMPT = ("You are a helpful assistant running locally on a Raspberry Pi 5. "
                  "Keep answers short and to the point - a few sentences unless asked for more.")
 
-SPEEDLOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "speedlog.jsonl")
-TODOFILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "todos.json")
-DIGESTFILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "digest.json")
-
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+SPEEDLOG = os.path.join(DIRECTORY, "speedlog.jsonl")
+TODOFILE = os.path.join(DIRECTORY, "todos.json")
+DIGESTFILE = os.path.join(DIRECTORY, "digest.json")
+
 _cache = {"data": None, "ts": 0.0}
 _bl = {"dir": None}
+
+app = Flask(__name__)
+logging.getLogger("werkzeug").setLevel(logging.ERROR)  # keep journald quiet
 
 
 def fetch_headlines():
@@ -172,95 +180,91 @@ def set_brightness(pct):
         return None
 
 
-class Handler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=DIRECTORY, **kwargs)
+@app.after_request
+def no_store(resp):
+    if resp.mimetype == "application/json":
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
 
-    def _send_json(self, obj):
-        body = json.dumps(obj).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
 
-    def do_GET(self):
-        path = urlparse(self.path).path
-        if path == "/news":
-            now = time.time()
-            ttl = CACHE_TTL if _cache["data"] else 45
-            if _cache["data"] is None or now - _cache["ts"] > ttl:
-                _cache["data"] = fetch_headlines()
-                _cache["ts"] = now
-            self._send_json({"headlines": _cache["data"]})
-        elif path == "/stats":
-            self._send_json({"cpu_temp": cpu_temp(), "cpu_pct": cpu_percent(),
-                             "fan_rpm": fan_rpm(),
-                             "mem": mem_info(), "disk": disk_info()})
-        elif path == "/speed":
-            self._send_json({"history": speed_history()})
-        elif path == "/todos":
-            self._send_json({"todos": load_todos()})
-        elif path == "/digest":
-            try:
-                with open(DIGESTFILE) as f:
-                    self._send_json(json.load(f))
-            except Exception:
-                self._send_json({"generated": None, "bullets": []})
-        elif path == "/power":
-            # kiosk-button only: hostel LAN has no client isolation, so never
-            # let another device on the network reach the shutdown endpoint
-            if self.client_address[0] != "127.0.0.1":
-                self.send_error(403)
-                return
-            q = parse_qs(urlparse(self.path).query)
-            if q.get("do", [""])[0] == "off":
-                self._send_json({"ok": True})
-                subprocess.Popen(["sudo", "/usr/sbin/shutdown", "-h", "+0"])
-            else:
-                self._send_json({"ok": False})
-        elif path == "/backlight":
-            q = parse_qs(urlparse(self.path).query)
-            pct = set_brightness(q["set"][0]) if "set" in q else get_brightness()
-            self._send_json({"pct": pct})
-        else:
-            super().do_GET()
+@app.get("/news")
+def news():
+    now = time.time()
+    ttl = CACHE_TTL if _cache["data"] else 45
+    if _cache["data"] is None or now - _cache["ts"] > ttl:
+        _cache["data"] = fetch_headlines()
+        _cache["ts"] = now
+    return jsonify({"headlines": _cache["data"]})
 
-    def do_POST(self):
-        path = urlparse(self.path).path
-        if path == "/todos":
-            try:
-                length = int(self.headers.get("Content-Length", 0))
-                data = json.loads(self.rfile.read(length)) if length else {}
-            except Exception:
-                data = {}
-            todos = load_todos()
-            act = data.get("action")
-            if act == "add" and data.get("text", "").strip():
-                todos.append({"id": int(time.time() * 1000),
-                              "text": data["text"].strip()[:200], "done": False})
-            elif act == "toggle":
-                for t in todos:
-                    if t["id"] == data.get("id"):
-                        t["done"] = not t["done"]
-            elif act == "delete":
-                todos = [t for t in todos if t["id"] != data.get("id")]
-            save_todos(todos)
-            self._send_json({"todos": todos})
-            return
-        if path != "/chat":
-            self.send_error(404)
-            return
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            data = json.loads(self.rfile.read(length)) if length else {}
-            messages = data.get("messages", [])[-12:]
-        except Exception:
-            messages = []
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
+
+@app.get("/stats")
+def stats():
+    return jsonify({"cpu_temp": cpu_temp(), "cpu_pct": cpu_percent(),
+                    "fan_rpm": fan_rpm(), "mem": mem_info(), "disk": disk_info()})
+
+
+@app.get("/speed")
+def speed():
+    return jsonify({"history": speed_history()})
+
+
+@app.get("/digest")
+def digest():
+    try:
+        with open(DIGESTFILE) as f:
+            return jsonify(json.load(f))
+    except Exception:
+        return jsonify({"generated": None, "bullets": []})
+
+
+@app.get("/todos")
+def todos_get():
+    return jsonify({"todos": load_todos()})
+
+
+@app.post("/todos")
+def todos_post():
+    data = request.get_json(silent=True) or {}
+    todos = load_todos()
+    act = data.get("action")
+    if act == "add" and data.get("text", "").strip():
+        todos.append({"id": int(time.time() * 1000),
+                      "text": data["text"].strip()[:200], "done": False})
+    elif act == "toggle":
+        for t in todos:
+            if t["id"] == data.get("id"):
+                t["done"] = not t["done"]
+    elif act == "delete":
+        todos = [t for t in todos if t["id"] != data.get("id")]
+    save_todos(todos)
+    return jsonify({"todos": todos})
+
+
+@app.get("/backlight")
+def backlight():
+    pct = set_brightness(request.args["set"]) if "set" in request.args else get_brightness()
+    return jsonify({"pct": pct})
+
+
+@app.get("/power")
+def power():
+    # kiosk-button only: hostel LAN has no client isolation, so never
+    # let another device on the network reach the shutdown endpoint
+    if request.remote_addr != "127.0.0.1":
+        abort(403)
+    if request.args.get("do") == "off":
+        resp = jsonify({"ok": True})
+        subprocess.Popen(["sudo", "/usr/sbin/shutdown", "-h", "+0"])
+        return resp
+    return jsonify({"ok": False})
+
+
+@app.post("/chat")
+def chat():
+    data = request.get_json(silent=True) or {}
+    messages = data.get("messages", [])[-12:]
+
+    def stream():
         try:
             payload = json.dumps({
                 "model": MODEL,
@@ -277,22 +281,25 @@ class Handler(SimpleHTTPRequestHandler):
                         continue
                     tok = chunk.get("message", {}).get("content", "")
                     if tok:
-                        self.wfile.write(tok.encode("utf-8"))
-                        self.wfile.flush()
+                        yield tok
                     if chunk.get("done"):
                         break
-        except BrokenPipeError:
-            pass
         except Exception:
-            try:
-                self.wfile.write("Sorry - couldn't reach the local AI. Is Ollama running?".encode("utf-8"))
-            except Exception:
-                pass
+            yield "Sorry - couldn't reach the local AI. Is Ollama running?"
 
-    def log_message(self, *args):
-        pass
+    return Response(stream(), mimetype="text/plain")
+
+
+@app.get("/")
+def index():
+    return send_from_directory(DIRECTORY, "index.html")
+
+
+@app.get("/<path:filename>")
+def static_files(filename):
+    return send_from_directory(DIRECTORY, filename)
 
 
 if __name__ == "__main__":
-    print(f"Dashboard serving on http://0.0.0.0:{PORT}")
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    print(f"Dashboard (Flask) serving on http://0.0.0.0:{PORT}")
+    app.run(host="0.0.0.0", port=PORT, threaded=True)

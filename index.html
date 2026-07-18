@@ -397,7 +397,7 @@
   let dimmed = false;
   function updateDimBtn(){
     document.getElementById('dimIcon').innerHTML = dimmed ? SUN : MOON;
-    document.getElementById('dimLabel').textContent = dimmed ? 'Brighten' : 'Dim';
+    document.getElementById('dimLabel').textContent = dimmed ? 'Bright' : 'Dim';
     dimBtn.classList.toggle('on', dimmed);
   }
   function animateDim(){ dimBtn.classList.remove('spin'); void dimBtn.offsetWidth; dimBtn.classList.add('spin'); }
