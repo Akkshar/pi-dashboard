@@ -208,6 +208,11 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception:
                 self._send_json({"generated": None, "bullets": []})
         elif path == "/power":
+            # kiosk-button only: hostel LAN has no client isolation, so never
+            # let another device on the network reach the shutdown endpoint
+            if self.client_address[0] != "127.0.0.1":
+                self.send_error(403)
+                return
             q = parse_qs(urlparse(self.path).query)
             if q.get("do", [""])[0] == "off":
                 self._send_json({"ok": True})
