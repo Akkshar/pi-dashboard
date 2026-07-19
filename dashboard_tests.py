@@ -130,6 +130,22 @@ with sync_playwright() as p:
     page.click("#netRow")
     page.wait_for_timeout(200)
 
+    try:
+        pl = get("/powerlog")
+        check("API /powerlog works", "outages" in pl, f"{len(pl['outages'])} outages")
+    except Exception as e:
+        check("API /powerlog works", False, str(e))
+    page.click("#pwrRow")
+    page.wait_for_timeout(400)
+    pb = page.locator("#pwrPop").bounding_box()
+    check("power log popover opens", pb is not None)
+    if pb:
+        check("power log popover on screen",
+              pb["x"] >= 0 and pb["x"] + pb["width"] <= 800 and pb["y"] >= 0,
+              f"x {pb['x']:.0f}-{pb['x']+pb['width']:.0f}")
+    page.click("#pwrRow")
+    page.wait_for_timeout(200)
+
     marker = f"pw-test-{int(time.time())}"
     page.fill("#remInput", marker)
     page.click("#remAdd")

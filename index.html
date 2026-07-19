@@ -54,15 +54,16 @@
   #sysCard .bar { height:4px; background:rgba(255,255,255,0.12); border-radius:4px; margin-top:2px; overflow:hidden; }
   #sysCard .bar i { display:block; height:100%; width:0; background:#5b8cff; border-radius:4px; transition:width .5s, background .5s; }
 
-  #speedPop {
+  #speedPop, #pwrPop {
     display:none; position:absolute; left:100%; bottom:48px; margin-left:8px; width:176px;
     background:rgba(12,15,28,0.72); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
     border:1px solid rgba(255,255,255,0.14); border-radius:14px; padding:10px; z-index:10;
     box-shadow:0 8px 26px rgba(0,0,0,0.45);
   }
-  #speedPop.open { display:block; }
-  #speedPop .t { font-size:.66rem; opacity:.7; margin-bottom:4px; }
-  #netRow { cursor:pointer; }
+  #speedPop.open, #pwrPop.open { display:block; }
+  #pwrPop { bottom:16px; }
+  #speedPop .t, #pwrPop .t { font-size:.66rem; opacity:.7; margin-bottom:4px; }
+  #netRow, #pwrRow { cursor:pointer; }
   #newsCard { position:fixed; right:16px; top:16px; bottom:16px; width:340px; display:flex; flex-direction:column; }
   #briefList { list-style:none; flex:1; overflow-y:auto; margin-top:4px; }
   #briefList li { font-size:.84rem; line-height:1.4; padding:5px 0 5px 15px; position:relative; opacity:.95;
@@ -149,10 +150,15 @@
       <div class="row"><span>Disk</span><span id="diskPct">—</span></div>
       <div class="bar"><i id="diskBar"></i></div>
       <div class="row" id="netRow"><span>Net <span class="hint">· tap</span></span><span id="netNow">—</span></div>
+      <div class="row" id="pwrRow"><span>Power <span class="hint">· tap</span></span><span id="pwrNow">—</span></div>
       <div id="speedPop">
         <div class="t">Download Mbps (blue) / Upload (green) — hourly</div>
         <canvas id="speedChart" width="156" height="64"></canvas>
         <div class="t" id="speedLatest" style="margin-top:4px"></div>
+      </div>
+      <div id="pwrPop">
+        <div class="t">Recent power cuts</div>
+        <div id="pwrList"></div>
       </div>
     </div>
   </div>
@@ -331,6 +337,31 @@
     ev.stopPropagation();
     document.getElementById('speedPop').classList.toggle('open');
     drawSpeed();
+  });
+
+  // ---- power-cut history ----
+  function fmtDur(s){ const h = Math.floor(s/3600), m = Math.round((s%3600)/60); return h ? h+'h '+m+'m' : m+'m'; }
+  async function loadPower(){
+    try{
+      const d = await (await fetch('/powerlog')).json();
+      const o = d.outages || [];
+      if(!o.length){ document.getElementById('pwrNow').textContent = 'no cuts yet'; return; }
+      const last = o[o.length-1];
+      document.getElementById('pwrNow').textContent = fmtDur(last.on-last.off)+' off';
+      const el = document.getElementById('pwrList');
+      el.innerHTML = '';
+      o.slice(-5).reverse().forEach(x=>{
+        const f = t => new Date(t*1000).toLocaleString([],{weekday:'short',hour:'numeric',minute:'2-digit'});
+        const div = document.createElement('div'); div.className = 't';
+        div.textContent = `${f(x.off)} → ${f(x.on)} (${fmtDur(x.on-x.off)})`;
+        el.appendChild(div);
+      });
+    }catch(e){}
+  }
+  loadPower(); setInterval(loadPower, 30*60*1000);
+  document.getElementById('pwrRow').addEventListener('click',(ev)=>{
+    ev.stopPropagation();
+    document.getElementById('pwrPop').classList.toggle('open');
   });
 
   // ---- reminders ----

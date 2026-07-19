@@ -208,6 +208,21 @@ def speed():
     return jsonify({"history": speed_history()})
 
 
+@app.get("/powerlog")
+def powerlog():
+    out = []
+    try:
+        with open(os.path.join(DIRECTORY, "powerlog.jsonl")) as f:
+            for line in f.read().splitlines()[-60:]:
+                try:
+                    out.append(json.loads(line))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return jsonify({"outages": out})
+
+
 @app.get("/digest")
 def digest():
     try:
