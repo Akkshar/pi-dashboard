@@ -56,10 +56,15 @@ def main():
     try:
         bullets = [b.strip() for b in json.loads(reply)["bullets"] if isinstance(b, str) and b.strip()]
     except Exception:
-        bullets = [l.strip("-*• ").strip() for l in reply.splitlines() if l.strip()]
+        # fallback line parser: strip list markers/quotes, drop JSON debris
+        bullets = []
+        for l in reply.splitlines():
+            l = l.strip().strip("-*• ").rstrip(",").strip().strip('"').strip()
+            if len(l) > 15 and not any(ch in l for ch in "{}[]"):
+                bullets.append(l)
     bullets = bullets[:BULLETS]
-    if not bullets:
-        log("model returned nothing usable - keeping old digest")
+    if len(bullets) < 3:
+        log(f"only {len(bullets)} usable bullets - keeping old digest")
         return 1
     tmp = OUT + ".tmp"
     with open(tmp, "w") as f:
