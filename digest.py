@@ -11,6 +11,7 @@ import time
 import urllib.request
 
 from server import MODEL, OLLAMA, fetch_headlines
+DIGEST_MODEL = "gemma4:e2b-it-qat"
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "digest.json")
 BULLETS = 8
@@ -43,7 +44,7 @@ def main():
         return 1
     listing = "\n".join(f"- {h['title']} ({h['source']})" for h in headlines)
     payload = json.dumps({
-        "model": MODEL,
+        "model": DIGEST_MODEL,
         "messages": [{"role": "user", "content": PROMPT.format(n=BULLETS, headlines=listing)}],
         "stream": False,
         "format": "json",
