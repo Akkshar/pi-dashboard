@@ -7,6 +7,7 @@ Config: ~/.pibot_token  (chmod 600), two lines:
     CHAT_ID=123456789        <- add after first contact; bot ignores everyone else
 Commands: /status /brief /todos /todo <text> /dim /bright /help
 """
+import datetime
 import json
 import os
 import subprocess
@@ -17,6 +18,7 @@ import urllib.request
 
 CFG_FILE = os.path.expanduser("~/.pibot_token")
 DASH = "http://127.0.0.1:8080"
+STUDY = "http://127.0.0.1:8100"
 DIGEST = os.path.expanduser("~/dashboard/digest.json")
 
 HELP = (
@@ -24,6 +26,7 @@ HELP = (
     "/status - CPU, temp, RAM, disk\n"
     "/brief - latest AI news brief\n"
     "/todos - list reminders\n"
+    "/deadlines - upcoming StudyHub deadlines\n"
     "/todo <text> - add a reminder\n"
     "/dim /bright - screen backlight"
 )
@@ -84,6 +87,31 @@ def cmd_todos():
     return "\n".join(("[done] " if t["done"] else "[ ] ") + t["text"] for t in ts)
 
 
+def cmd_deadlines():
+    with urllib.request.urlopen(STUDY + "/api/tasks", timeout=15) as r:
+        ts = json.load(r)
+    today = datetime.date.today()
+    rows = []
+    for t in ts:
+        if t["done"]:
+            continue
+        d = (datetime.date.fromisoformat(t["due"]) - today).days
+        if d < 0:
+            when = f"{-d}d OVERDUE"
+        elif d == 0:
+            when = "TODAY"
+        elif d == 1:
+            when = "tomorrow"
+        else:
+            when = f"in {d}d"
+        due = datetime.date.fromisoformat(t["due"]).strftime("%d %b")
+        rows.append((d, f"{when}: {t['course']} {t['title']} ({due})"))
+    if not rows:
+        return "No open deadlines. Free!"
+    rows.sort(key=lambda x: x[0])
+    return "\n".join(r for _, r in rows[:20])
+
+
 def handle(text):
     t = text.strip()
     if t.startswith("/status"):
@@ -92,6 +120,8 @@ def handle(text):
         return cmd_brief()
     if t.startswith("/todos"):
         return cmd_todos()
+    if t.startswith("/deadlines"):
+        return cmd_deadlines()
     if t.startswith("/todo "):
         added = t[6:].strip()
         if added:
