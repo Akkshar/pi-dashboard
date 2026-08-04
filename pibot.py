@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -134,6 +135,13 @@ def main():
                 except Exception as e:
                     reply = f"Error: {e}"
                 tg("sendMessage", chat_id=chat, text=reply)
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 404):
+                print(f"token rejected by Telegram (HTTP {e.code}) - check ~/.pibot_token; retrying in 5 min", flush=True)
+                time.sleep(300)
+            else:
+                print(f"network hiccup: {e}", flush=True)
+                time.sleep(10)
         except Exception as e:
             print(f"network hiccup: {e}", flush=True)
             time.sleep(10)
@@ -143,6 +151,6 @@ conf = cfg()
 TOKEN = conf.get("TOKEN", "")
 CHAT_ID = conf.get("CHAT_ID", "")
 if __name__ == "__main__":
-    if not TOKEN:
-        raise SystemExit("No TOKEN in ~/.pibot_token - create the bot with @BotFather first")
+    if not TOKEN or ":" not in TOKEN:
+        raise SystemExit("No real TOKEN in ~/.pibot_token (expected 123456:ABC... from @BotFather)")
     main()
