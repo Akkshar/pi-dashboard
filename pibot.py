@@ -27,9 +27,15 @@ HELP = (
     "/brief - latest AI news brief\n"
     "/todos - list reminders\n"
     "/deadlines - upcoming StudyHub deadlines\n"
+    "/deadline <YYYY-MM-DD> [DA|Lab|CAT|FAT] <title> - add a deadline\n"
     "/todo <text> - add a reminder\n"
+    "/portal pause [min] | resume - let me log into the portal directly\n"
+    "/wake - wake the laptop (WoL)\n"
     "/dim /bright - screen backlight"
 )
+
+PAUSE_FILE = os.path.expanduser("~/.portal_pause")
+LAPTOP_MACS = ["58:11:22:DD:6A:91", "C4:BD:E5:BB:1E:1C"]  # ethernet, wifi
 
 
 def cfg():
@@ -112,6 +118,60 @@ def cmd_deadlines():
     return "\n".join(r for _, r in rows[:20])
 
 
+def cmd_deadline_add(rest):
+    parts = rest.split()
+    if len(parts) < 2:
+        return "Usage: /deadline 2026-08-12 [DA|Lab|CAT|FAT] OS record submission"
+    try:
+        datetime.date.fromisoformat(parts[0])
+    except ValueError:
+        return "First word must be the due date, YYYY-MM-DD."
+    due, parts = parts[0], parts[1:]
+    typ = "DA"
+    if parts and parts[0] in ("DA", "Lab", "CAT", "FAT", "Other"):
+        typ, parts = parts[0], parts[1:]
+    if not parts:
+        return "Give the deadline a title."
+    title = " ".join(parts)
+    req = urllib.request.Request(
+        STUDY + "/api/tasks",
+        data=json.dumps({"title": title, "type": typ, "due": due}).encode(),
+        headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=15):
+        pass
+    return f"Added: {title} ({typ}) due {due}"
+
+
+def cmd_portal(rest):
+    parts = rest.split()
+    if parts and parts[0] == "pause":
+        mins = 30
+        if len(parts) > 1 and parts[1].isdigit():
+            mins = min(int(parts[1]), 480)
+        with open(PAUSE_FILE, "w") as f:
+            f.write(str(int(time.time()) + mins * 60))
+        return (f"Portal watchdog paused for {mins} min - you can log into the "
+                "portal directly now. It resumes on its own.")
+    if parts and parts[0] == "resume":
+        try:
+            os.remove(PAUSE_FILE)
+        except FileNotFoundError:
+            pass
+        return "Portal watchdog resumed."
+    return "Usage: /portal pause [minutes] or /portal resume"
+
+
+def cmd_wake():
+    import socket
+    for mac in LAPTOP_MACS:
+        pkt = b"\xff" * 6 + bytes.fromhex(mac.replace(":", "")) * 16
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        s.sendto(pkt, ("255.255.255.255", 9))
+        s.close()
+    return "Magic packets sent (ethernet + wifi MACs)."
+
+
 def handle(text):
     t = text.strip()
     if t.startswith("/status"):
@@ -128,6 +188,12 @@ def handle(text):
             dash_post("/todos", {"action": "add", "text": added})
             return f"Added: {added}"
         return "Usage: /todo buy detergent"
+    if t.startswith("/deadline "):
+        return cmd_deadline_add(t[10:].strip())
+    if t.startswith("/portal"):
+        return cmd_portal(t[7:].strip())
+    if t.startswith("/wake"):
+        return cmd_wake()
     if t.startswith("/dim"):
         dash("/backlight?set=15")
         return "Screen dimmed."
