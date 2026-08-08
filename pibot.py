@@ -163,13 +163,19 @@ def cmd_portal(rest):
 
 def cmd_wake():
     import socket
-    for mac in LAPTOP_MACS:
-        pkt = b"\xff" * 6 + bytes.fromhex(mac.replace(":", "")) * 16
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        s.sendto(pkt, ("255.255.255.255", 9))
-        s.close()
-    return "Magic packets sent (ethernet + wifi MACs)."
+    # 172.16.99.255 = wired link subnet broadcast (goes out eth0, the path that
+    # actually reaches the sleeping laptop); global broadcast covers wifi too
+    for target in ("172.16.99.255", "255.255.255.255"):
+        for mac in LAPTOP_MACS:
+            pkt = b"\xff" * 6 + bytes.fromhex(mac.replace(":", "")) * 16
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            try:
+                s.sendto(pkt, (target, 9))
+            except OSError:
+                pass
+            s.close()
+    return "Magic packets sent over the wire + wifi."
 
 
 def handle(text):
