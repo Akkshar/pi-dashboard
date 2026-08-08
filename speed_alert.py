@@ -15,7 +15,7 @@ import urllib.request
 HOME = os.path.expanduser("~")
 LOG = HOME + "/dashboard/speedlog.jsonl"
 STATE = HOME + "/dashboard/.speed_alert_ts"
-THRESH = 12.0        # Mbit down; history p75 is ~9.8, so this is a genuinely good window
+THRESH = 7.5        # Mbit down; cake caps ingress at 8, so ~7.5+ means the link is saturating the cap
 COOLDOWN = 6 * 3600  # seconds between alerts
 
 now = time.time()
