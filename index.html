@@ -93,6 +93,40 @@
   #remAdd { background:rgba(91,140,255,0.45); border:1px solid rgba(91,140,255,0.5);
     border-radius:10px; color:#fff; padding:8px 14px; font-size:1rem; cursor:pointer; }
 
+  #remCard h2 { display:flex; align-items:center; gap:6px; }
+  #remCard h2 .hint { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #askOpen { cursor:pointer; font-size:.68rem; letter-spacing:0; text-transform:none;
+    background:rgba(91,140,255,0.25); border:1px solid rgba(91,140,255,0.4);
+    border-radius:10px; padding:2px 8px; white-space:nowrap; }
+
+  #chatPanel {
+    display:none; position:fixed; left:262px; right:16px; top:16px; bottom:64px;
+    z-index:30; flex-direction:column;
+    background:rgba(12,15,28,0.84); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+    border:1px solid rgba(255,255,255,0.16); border-radius:16px; padding:12px 14px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.5); text-shadow:0 1px 3px rgba(0,0,0,0.5);
+  }
+  #chatPanel.open { display:flex; }
+  #chatHead { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  #chatHead h2 { margin-bottom:0; flex:1; }
+  .chatAct { cursor:pointer; font-size:.72rem; opacity:.75; padding:3px 9px;
+    border:1px solid rgba(255,255,255,0.2); border-radius:9px; background:rgba(255,255,255,0.06); }
+  #chatLog { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:6px; padding:2px 0; }
+  .msg { max-width:86%; padding:6px 10px; border-radius:12px; font-size:.8rem; line-height:1.45;
+    white-space:pre-wrap; word-break:break-word; }
+  .msg.user { align-self:flex-end; background:rgba(91,140,255,0.35); border:1px solid rgba(91,140,255,0.4); }
+  .msg.bot { align-self:flex-start; background:rgba(255,255,255,0.09); border:1px solid rgba(255,255,255,0.12); }
+  .msg.bot.busy::after { content:'▍'; animation:blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  #chatForm { display:flex; gap:6px; margin-top:8px; }
+  #chatInput { flex:1; min-width:0; background:rgba(255,255,255,0.1);
+    border:1px solid rgba(255,255,255,0.2); border-radius:10px; color:#fff;
+    padding:8px 10px; font-size:.85rem; outline:none; }
+  #chatInput::placeholder { color:rgba(255,255,255,0.45); }
+  #chatSend { background:rgba(91,140,255,0.45); border:1px solid rgba(91,140,255,0.5);
+    border-radius:10px; color:#fff; padding:8px 14px; font-size:.9rem; cursor:pointer; }
+  #chatSend:disabled { opacity:.45; cursor:default; }
+
   #btnRow {
     position:fixed; left:262px; right:372px; bottom:16px;
     display:flex; justify-content:center; gap:10px; z-index:5;
@@ -174,7 +208,7 @@
   </div>
 
   <div class="widget" id="remCard">
-    <h2>Reminders <span class="hint">· tap to check off</span></h2>
+    <h2>Reminders <span class="hint">· tap to check off</span><span id="askOpen">🧠 Ask</span></h2>
     <ul id="remList"></ul>
     <form id="remForm">
       <input id="remInput" type="text" placeholder="Add a reminder…" autocomplete="off">
@@ -185,6 +219,19 @@
   <div class="widget" id="newsCard">
     <h2>Daily Brief <span class="hint" id="briefTime">· waiting for first brief</span></h2>
     <ul id="briefList"><li style="border:none">Loading…</li></ul>
+  </div>
+
+  <div id="chatPanel">
+    <div id="chatHead">
+      <h2>Ask the Pi <span class="hint">· llama3.2:3b, runs on this Pi</span></h2>
+      <span class="chatAct" id="chatNew">New chat</span>
+      <span class="chatAct" id="chatClose">✕</span>
+    </div>
+    <div id="chatLog"></div>
+    <form id="chatForm">
+      <input id="chatInput" type="text" placeholder="Ask anything…" autocomplete="off">
+      <button id="chatSend" type="submit">➤</button>
+    </form>
   </div>
 
   <div id="btnRow">
@@ -454,6 +501,76 @@
     try{ renderRem(await remPost({action:'add', text:v})); }catch(e){}
   });
   remRefresh(); setInterval(remRefresh, 60000);
+
+  // ---- Ask the Pi (streams from /chat; history survives reloads via localStorage) ----
+  const chatPanel = document.getElementById('chatPanel');
+  const chatLog = document.getElementById('chatLog');
+  const chatInput = document.getElementById('chatInput');
+  const chatSendBtn = document.getElementById('chatSend');
+  let chatMsgs = [];
+  try{ chatMsgs = JSON.parse(localStorage.getItem('chatHist')) || []; }catch(e){}
+  let chatBusy = false;
+  function chatSave(){ try{ localStorage.setItem('chatHist', JSON.stringify(chatMsgs.slice(-40))); }catch(e){} }
+  function addBubble(role, text){
+    const div = document.createElement('div');
+    div.className = 'msg ' + (role==='user' ? 'user' : 'bot');
+    div.textContent = text;
+    chatLog.appendChild(div);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    return div;
+  }
+  function chatRender(){
+    chatLog.innerHTML = '';
+    if(!chatMsgs.length){
+      const d = addBubble('bot', 'Hi! I run entirely on this Pi — no cloud. Ask me anything.');
+      d.style.opacity = .65;
+      return;
+    }
+    chatMsgs.forEach(m=>addBubble(m.role, m.content));
+  }
+  document.getElementById('askOpen').addEventListener('click', ()=>{
+    chatPanel.classList.add('open'); chatRender(); chatInput.focus();
+  });
+  document.getElementById('chatClose').addEventListener('click', ()=>chatPanel.classList.remove('open'));
+  document.getElementById('chatNew').addEventListener('click', ()=>{
+    if(chatBusy) return;
+    chatMsgs = []; chatSave(); chatRender();
+  });
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') chatPanel.classList.remove('open'); });
+  document.getElementById('chatForm').addEventListener('submit', async ev=>{
+    ev.preventDefault();
+    if(chatBusy) return;
+    const q = chatInput.value.trim();
+    if(!q) return;
+    chatInput.value = '';
+    if(!chatMsgs.length) chatLog.innerHTML = '';  // drop the greeting bubble
+    chatMsgs.push({role:'user', content:q});
+    chatSave();
+    addBubble('user', q);
+    chatBusy = true; chatSendBtn.disabled = true;
+    const bubble = addBubble('bot', '');
+    bubble.classList.add('busy');
+    let reply = '';
+    try{
+      const resp = await fetch('/chat', {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({messages: chatMsgs})});
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      while(true){
+        const {done, value} = await reader.read();
+        if(done) break;
+        reply += dec.decode(value, {stream:true});
+        bubble.textContent = reply;
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+    }catch(e){}
+    if(!reply){ reply = "Sorry — couldn't reach the local AI. Is Ollama running?"; bubble.textContent = reply; }
+    bubble.classList.remove('busy');
+    chatMsgs.push({role:'assistant', content:reply});
+    chatSave();
+    chatBusy = false; chatSendBtn.disabled = false;
+  });
 
   // ---- power button (tap twice to confirm) ----
   const POWER = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v9"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>';
