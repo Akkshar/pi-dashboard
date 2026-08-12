@@ -274,6 +274,27 @@ def power():
     return jsonify({"ok": False})
 
 
+@app.get("/net")
+def net():
+    do = request.args.get("do")
+    if do:
+        # like /power: only the kiosk and pibot may switch networks — a LAN
+        # device must never be able to knock the Pi (and the laptop behind it)
+        # off the hostel WiFi or onto mobile data
+        if request.remote_addr != "127.0.0.1":
+            abort(403)
+        if do not in ("hotspot", "rvit"):
+            abort(400)
+        subprocess.Popen([os.path.join(DIRECTORY, "netswitch.sh"), do])
+        return jsonify({"ok": True, "switching": do})
+    try:
+        out = subprocess.run([os.path.join(DIRECTORY, "netswitch.sh"), "status"],
+                             capture_output=True, text=True, timeout=15).stdout
+        return jsonify(json.loads(out))
+    except Exception:
+        return jsonify({"net": None, "conn": None, "online": None})
+
+
 @app.post("/chat")
 def chat():
     data = request.get_json(silent=True) or {}

@@ -30,6 +30,7 @@ HELP = (
     "/deadline <YYYY-MM-DD> [DA|Lab|CAT|FAT] <title> - add a deadline\n"
     "/todo <text> - add a reminder\n"
     "/portal pause [min] | resume - let me log into the portal directly\n"
+    "/net [hotspot|rvit] - show or switch the Pi's WiFi network\n"
     "/wake - wake the laptop (WoL)\n"
     "/dim /bright - screen backlight"
 )
@@ -161,6 +162,20 @@ def cmd_portal(rest):
     return "Usage: /portal pause [minutes] or /portal resume"
 
 
+def cmd_net(rest):
+    arg = rest.strip().lower()
+    if arg in ("hotspot", "rvit"):
+        dash(f"/net?do={arg}")
+        if arg == "hotspot":
+            return ("Switching to the iPhone hotspot - keep the phone's Personal "
+                    "Hotspot screen open. Give it ~20s, then /net to check. "
+                    "(Uses phone data; I return to R-VIT after curfew.)")
+        return "Switching back to hostel WiFi - the watchdog will re-auth the portal."
+    s = dash("/net")
+    name = "iPhone hotspot" if s.get("net") == "hotspot" else s.get("conn", "?")
+    return f"On {name}, internet {'OK' if s.get('online') else 'DOWN'}."
+
+
 def cmd_wake():
     import socket
     # 172.16.99.255 = wired link subnet broadcast (goes out eth0, the path that
@@ -198,6 +213,8 @@ def handle(text):
         return cmd_deadline_add(t[10:].strip())
     if t.startswith("/portal"):
         return cmd_portal(t[7:].strip())
+    if t.startswith("/net"):
+        return cmd_net(t[4:].strip())
     if t.startswith("/wake"):
         return cmd_wake()
     if t.startswith("/dim"):

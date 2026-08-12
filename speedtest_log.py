@@ -5,6 +5,15 @@ import json, os, subprocess, time
 LOG = os.path.expanduser("~/dashboard/speedlog.jsonl")
 MAX_LINES = 500
 
+# never burn mobile data: a speedtest is ~100 MB, skip while on the hotspot
+try:
+    active = subprocess.run(["nmcli", "-t", "-f", "NAME,DEVICE", "con", "show", "--active"],
+                            capture_output=True, text=True, timeout=15).stdout
+    if "iphone-hotspot:wlan0" in active:
+        raise SystemExit
+except (OSError, subprocess.TimeoutExpired):
+    pass
+
 try:
     out = subprocess.run(["speedtest-cli", "--json"], capture_output=True, text=True, timeout=240).stdout
     d = json.loads(out)

@@ -54,16 +54,19 @@
   #sysCard .bar { height:4px; background:rgba(255,255,255,0.12); border-radius:4px; margin-top:2px; overflow:hidden; }
   #sysCard .bar i { display:block; height:100%; width:0; background:#5b8cff; border-radius:4px; transition:width .5s, background .5s; }
 
-  #speedPop, #pwrPop {
+  #speedPop, #pwrPop, #wifiPop {
     display:none; position:absolute; left:100%; bottom:48px; margin-left:8px; width:176px;
     background:rgba(12,15,28,0.72); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
     border:1px solid rgba(255,255,255,0.14); border-radius:14px; padding:10px; z-index:10;
     box-shadow:0 8px 26px rgba(0,0,0,0.45);
   }
-  #speedPop.open, #pwrPop.open { display:block; }
-  #pwrPop { bottom:16px; }
-  #speedPop .t, #pwrPop .t { font-size:.66rem; opacity:.7; margin-bottom:4px; }
-  #netRow, #pwrRow { cursor:pointer; }
+  #speedPop.open, #pwrPop.open, #wifiPop.open { display:block; }
+  #pwrPop, #wifiPop { bottom:16px; }
+  #speedPop .t, #pwrPop .t, #wifiPop .t { font-size:.66rem; opacity:.7; margin-bottom:4px; }
+  #netRow, #pwrRow, #wifiRow { cursor:pointer; }
+  .wopt { font-size:.74rem; padding:6px 8px; border-radius:8px; cursor:pointer; margin-top:4px;
+    background:rgba(255,255,255,0.07); border:1px solid transparent; }
+  .wopt.cur { background:rgba(91,140,255,0.3); border-color:rgba(91,140,255,0.5); cursor:default; }
   #newsCard { position:fixed; right:16px; top:16px; bottom:16px; width:340px; display:flex; flex-direction:column; }
   #briefList { list-style:none; flex:1; overflow-y:auto; margin-top:4px; }
   #briefList li { font-size:.84rem; line-height:1.4; padding:5px 0 5px 15px; position:relative; opacity:.95;
@@ -151,6 +154,7 @@
       <div class="bar"><i id="diskBar"></i></div>
       <div class="row" id="netRow"><span>Net <span class="hint">· tap</span></span><span id="netNow">—</span></div>
       <div class="row" id="pwrRow"><span>Power <span class="hint">· tap</span></span><span id="pwrNow">—</span></div>
+      <div class="row" id="wifiRow"><span>WiFi <span class="hint">· tap</span></span><span id="wifiNow">—</span></div>
       <div id="speedPop">
         <div class="t">Download Mbps (blue) / Upload (green) — hourly</div>
         <canvas id="speedChart" width="156" height="64"></canvas>
@@ -159,6 +163,12 @@
       <div id="pwrPop">
         <div class="t">Recent power cuts</div>
         <div id="pwrList"></div>
+      </div>
+      <div id="wifiPop">
+        <div class="t">Switch network</div>
+        <div class="wopt" id="woRvit">Hostel WiFi (R-VIT)</div>
+        <div class="wopt" id="woHs">iPhone hotspot</div>
+        <div class="t" id="wifiNote" style="margin-top:5px;margin-bottom:0"></div>
       </div>
     </div>
   </div>
@@ -363,6 +373,52 @@
     ev.stopPropagation();
     document.getElementById('pwrPop').classList.toggle('open');
   });
+
+  // ---- WiFi switcher (manual only — the hotspot is never joined automatically) ----
+  const wifiNow = document.getElementById('wifiNow');
+  const wifiNote = document.getElementById('wifiNote');
+  const wifiPop = document.getElementById('wifiPop');
+  let curNet = null;
+  function paintWifi(){
+    document.getElementById('woRvit').classList.toggle('cur', curNet==='rvit');
+    document.getElementById('woHs').classList.toggle('cur', curNet==='hotspot');
+  }
+  async function refreshNet(){
+    try{
+      const r = await (await fetch('/net')).json();
+      if(!r.net) return;
+      curNet = r.net;
+      wifiNow.textContent = (r.net==='hotspot' ? 'Hotspot' : 'R-VIT') + (r.online ? ' ✓' : ' ✗');
+      wifiNow.style.color = r.net==='hotspot' ? '#ffcf87' : '';
+      paintWifi();
+    }catch(e){}
+  }
+  refreshNet(); setInterval(refreshNet, 30000);
+  document.getElementById('wifiRow').addEventListener('click',(ev)=>{
+    ev.stopPropagation();
+    document.getElementById('speedPop').classList.remove('open');
+    document.getElementById('pwrPop').classList.remove('open');
+    wifiNote.textContent = curNet==='hotspot' ? 'Hotspot uses phone data' : '';
+    wifiPop.classList.toggle('open');
+  });
+  async function switchNet(target){
+    if(target===curNet){ wifiPop.classList.remove('open'); return; }
+    wifiNote.textContent = target==='hotspot'
+      ? "Switching… keep the phone's Hotspot screen open. Uses phone data!"
+      : 'Switching back to hostel WiFi…';
+    try{ await fetch('/net?do='+target); }catch(e){}
+    let tries = 0;
+    const poll = setInterval(async ()=>{
+      await refreshNet();
+      if(curNet===target || ++tries>10){
+        clearInterval(poll);
+        if(curNet===target){ wifiNote.textContent=''; wifiPop.classList.remove('open'); }
+        else wifiNote.textContent = "Didn't switch — open the phone's Personal Hotspot screen and try again.";
+      }
+    }, 5000);
+  }
+  document.getElementById('woRvit').addEventListener('click',(ev)=>{ ev.stopPropagation(); switchNet('rvit'); });
+  document.getElementById('woHs').addEventListener('click',(ev)=>{ ev.stopPropagation(); switchNet('hotspot'); });
 
   // ---- reminders ----
   const remList = document.getElementById('remList');
