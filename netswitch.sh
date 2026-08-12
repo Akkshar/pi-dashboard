@@ -13,7 +13,7 @@ say(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
 current(){ nmcli -t -f NAME,DEVICE con show --active | awk -F: '$2=="wlan0"{print $1}'; }
 
 online(){
-  [ "$(curl -s -o /dev/null -w '%{http_code}' -m 8 http://connectivity-check.gstatic.com/generate_204)" = "204" ]
+  [ "$(curl -s -o /dev/null -w '%{http_code}' -m 8 http://connectivitycheck.gstatic.com/generate_204)" = "204" ]
 }
 
 case "$1" in
