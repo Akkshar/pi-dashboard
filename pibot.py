@@ -5,16 +5,20 @@ Pure stdlib, long-polling (works behind the hostel portal: outbound HTTPS only).
 Config: ~/.pibot_token  (chmod 600), two lines:
     TOKEN=123456:ABC-your-botfather-token
     CHAT_ID=123456789        <- add after first contact; bot ignores everyone else
-Commands: /status /brief /todos /todo <text> /dim /bright /help
+Commands: /status /brief /todos /todo <text> /dim /bright /forget /help
+Anything that isn't a command goes to jarvis.ask() - the local AI brain.
 """
 import datetime
 import json
 import os
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+import jarvis
 
 CFG_FILE = os.path.expanduser("~/.pibot_token")
 DASH = "http://127.0.0.1:8080"
@@ -22,7 +26,8 @@ STUDY = "http://127.0.0.1:8100"
 DIGEST = os.path.expanduser("~/dashboard/digest.json")
 
 HELP = (
-    "Pi at your service. Commands:\n"
+    "Pi at your service. Just type normally to talk to Jarvis -\n"
+    "or use a command:\n"
     "/status - CPU, temp, RAM, disk\n"
     "/brief - latest AI news brief\n"
     "/todos - list reminders\n"
@@ -32,7 +37,8 @@ HELP = (
     "/portal pause [min] | resume - let me log into the portal directly\n"
     "/net [hotspot|rvit] - show or switch the Pi's WiFi network\n"
     "/wake - wake the laptop (WoL)\n"
-    "/dim /bright - screen backlight"
+    "/dim /bright - screen backlight\n"
+    "/forget - wipe Jarvis's short-term memory"
 )
 
 PAUSE_FILE = os.path.expanduser("~/.portal_pause")
@@ -54,6 +60,31 @@ def tg(method, **params):
     req = urllib.request.Request(f"https://api.telegram.org/bot{TOKEN}/{method}", data=data)
     with urllib.request.urlopen(req, timeout=70) as r:
         return json.load(r)
+
+
+def send_long(chat, text):
+    """sendMessage, split under Telegram's 4096-char limit (prefer newlines)."""
+    text = text or "..."
+    while text:
+        if len(text) <= 3900:
+            chunk, text = text, ""
+        else:
+            cut = text.rfind("\n", 0, 3900)
+            if cut < 500:
+                cut = 3900
+            chunk, text = text[:cut], text[cut:].lstrip("\n")
+        tg("sendMessage", chat_id=chat, text=chunk)
+
+
+def _typing_ticker(chat, done):
+    # Telegram's "typing..." indicator expires after ~5s; refresh until done
+    while True:
+        try:
+            tg("sendChatAction", chat_id=chat, action="typing")
+        except Exception:
+            pass
+        if done.wait(4.5):
+            break
 
 
 def dash(path):
@@ -223,7 +254,19 @@ def handle(text):
     if t.startswith("/bright"):
         dash("/backlight?set=100")
         return "Screen brightened."
-    return HELP
+    if t.startswith("/forget"):
+        jarvis.reset_history()
+        return "Memory wiped, sir. Who are you again?"
+    if t.startswith("/help") or t.startswith("/start") or t.startswith("/"):
+        return HELP  # unknown slash commands get help, not the LLM
+    # free text -> Jarvis; keep the typing indicator alive while it thinks
+    done = threading.Event()
+    threading.Thread(target=_typing_ticker, args=(CHAT_ID, done),
+                     daemon=True).start()
+    try:
+        return jarvis.ask(t).text
+    finally:
+        done.set()
 
 
 def main():
@@ -253,7 +296,7 @@ def main():
                     reply = handle(text)
                 except Exception as e:
                     reply = f"Error: {e}"
-                tg("sendMessage", chat_id=chat, text=reply)
+                send_long(chat, reply)
         except urllib.error.HTTPError as e:
             if e.code in (401, 404):
                 print(f"token rejected by Telegram (HTTP {e.code}) - check ~/.pibot_token; retrying in 5 min", flush=True)
