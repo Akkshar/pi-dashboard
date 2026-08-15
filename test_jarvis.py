@@ -49,6 +49,10 @@ CASES = [
     ("hey", "greeting"),
     ("good morning", "greeting"),
     ("thanks", "greeting"),
+    # claude escalation
+    ("ask claude what is the meaning of life", "claude"),
+    ("claude, explain how DNS works", "claude"),
+    ("hey claude should I use flask or fastapi", "claude"),
     # must fall through to the LLM
     ("write me a haiku about exams", None),
     ("what should I focus on today", None),

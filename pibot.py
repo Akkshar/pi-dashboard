@@ -19,6 +19,7 @@ import urllib.parse
 import urllib.request
 
 import jarvis
+import voicebox
 
 CFG_FILE = os.path.expanduser("~/.pibot_token")
 DASH = "http://127.0.0.1:8080"
@@ -26,8 +27,10 @@ STUDY = "http://127.0.0.1:8100"
 DIGEST = os.path.expanduser("~/dashboard/digest.json")
 
 HELP = (
-    "Pi at your service. Just type normally to talk to Jarvis -\n"
-    "or use a command:\n"
+    "Pi at your service. Just type normally to talk to Jarvis,\n"
+    "send a voice note and he'll talk back, or say\n"
+    "'ask claude <question>' to escalate to the big brain.\n"
+    "Commands:\n"
     "/status - CPU, temp, RAM, disk\n"
     "/brief - latest AI news brief\n"
     "/todos - list reminders\n"
@@ -85,6 +88,75 @@ def _typing_ticker(chat, done):
             pass
         if done.wait(4.5):
             break
+
+
+def tg_send_voice(chat, path):
+    """sendVoice needs multipart/form-data; stdlib-only implementation."""
+    with open(path, "rb") as f:
+        audio = f.read()
+    boundary = f"----pibot{int(time.time() * 1000)}"
+    b = boundary.encode()
+    body = b"".join([
+        b"--" + b + b"\r\n",
+        b'Content-Disposition: form-data; name="chat_id"\r\n\r\n',
+        str(chat).encode() + b"\r\n",
+        b"--" + b + b"\r\n",
+        b'Content-Disposition: form-data; name="voice"; filename="reply.ogg"\r\n',
+        b"Content-Type: audio/ogg\r\n\r\n",
+        audio + b"\r\n",
+        b"--" + b + b"--\r\n",
+    ])
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{TOKEN}/sendVoice", data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return json.load(r)
+
+
+VOICE_MAX_SECONDS = 120
+SPEAK_MAX_CHARS = 900
+
+
+def handle_voice(voice):
+    """Telegram voice object -> (text reply, ogg reply path or None)."""
+    if voice.get("duration", 0) > VOICE_MAX_SECONDS:
+        return ("Over two minutes of audio, sir - brevity is a virtue. "
+                "Do try a shorter one."), None
+    if not voicebox.stt_available():
+        return ("I heard you, sir, but my ears (whisper.cpp) aren't "
+                "installed yet."), None
+    info = tg("getFile", file_id=voice["file_id"])
+    url = f"https://api.telegram.org/file/bot{TOKEN}/{info['result']['file_path']}"
+    audio = "/tmp/pibot_voice_in.oga"
+    with urllib.request.urlopen(url, timeout=60) as r, open(audio, "wb") as f:
+        f.write(r.read())
+    try:
+        heard = voicebox.transcribe(audio)
+    except voicebox.VoiceError as e:
+        return f"Transcription failed, sir: {e}", None
+    finally:
+        try:
+            os.remove(audio)
+        except OSError:
+            pass
+    if not heard or not any(c.isalnum() for c in heard):
+        return "I couldn't make out a word of that, sir.", None
+    try:
+        reply = handle(heard)
+    except Exception as e:
+        reply = f"Error: {e}"
+    text_reply = f'\U0001F3A4 "{heard}"\n\n{reply}'
+    ogg = None
+    if voicebox.tts_available():
+        spoken = reply
+        if len(spoken) > SPEAK_MAX_CHARS:
+            spoken = (spoken[:SPEAK_MAX_CHARS].rsplit(" ", 1)[0]
+                      + " ... the rest is in the text, sir.")
+        try:
+            ogg = voicebox.speak(spoken, "/tmp/pibot_reply.ogg")
+        except voicebox.VoiceError as e:
+            print(f"tts failed: {e}", flush=True)
+    return text_reply, ogg
 
 
 def dash(path):
@@ -280,7 +352,8 @@ def main():
                 msg = u.get("message") or {}
                 chat = str(msg.get("chat", {}).get("id", ""))
                 text = msg.get("text", "")
-                if not chat or not text:
+                voice = msg.get("voice")
+                if not chat or not (text or voice):
                     continue
                 if not CHAT_ID:
                     tg("sendMessage", chat_id=chat, text=(
@@ -292,6 +365,23 @@ def main():
                     continue
                 if chat != CHAT_ID:
                     continue  # not you: silently ignore strangers
+                if voice:
+                    done = threading.Event()
+                    threading.Thread(target=_typing_ticker, args=(chat, done),
+                                     daemon=True).start()
+                    try:
+                        reply, ogg = handle_voice(voice)
+                    except Exception as e:
+                        reply, ogg = f"Error: {e}", None
+                    finally:
+                        done.set()
+                    send_long(chat, reply)
+                    if ogg:
+                        try:
+                            tg_send_voice(chat, ogg)
+                        except Exception as e:
+                            print(f"sendVoice failed: {e}", flush=True)
+                    continue
                 try:
                     reply = handle(text)
                 except Exception as e:

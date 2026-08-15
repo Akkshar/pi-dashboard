@@ -17,8 +17,10 @@ CLI for testing over SSH:  python3 jarvis.py "how's the pi"
 import collections
 import datetime
 import json
+import os
 import random
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -38,6 +40,13 @@ OLLAMA_TIMEOUT = 120        # cold load + possible queue behind the digest job
 HISTORY_MAX = 16            # messages kept per conversation (8 exchanges)
 HISTORY_TTL = 1800          # seconds before an exchange stops being "recent"
 MAX_TOKENS = 300            # bound LLM reply length (phone-sized answers)
+
+# Claude escalation ("ask claude ...") - runs Claude Code headless on the Pi,
+# authenticated with the user's subscription via a long-lived OAuth token.
+CLAUDE_BIN = os.path.expanduser("~/.local/bin/claude")
+CLAUDE_CFG = os.path.expanduser("~/.jarvis_claude")   # TOKEN=sk-ant-oat01-...
+CLAUDE_WORKDIR = os.path.expanduser("~/.claude-scratch")  # empty on purpose
+CLAUDE_TIMEOUT = 180
 
 SYSTEM_PROMPT = (
     "You are Jarvis, the personal AI of a student in Vellore, India, running "
@@ -297,6 +306,56 @@ def h_net(text, m):
     return f"On {name}, sir - internet {verdict}."
 
 
+def _claude_token():
+    try:
+        with open(CLAUDE_CFG) as f:
+            for line in f:
+                k, _, v = line.strip().partition("=")
+                if k == "TOKEN" and v:
+                    return v
+    except OSError:
+        pass
+    return None
+
+
+def h_claude(text, m):
+    q = m.group(1).strip()
+    if not q:
+        return "Ask Claude what, sir?"
+    if not os.path.exists(CLAUDE_BIN):
+        return ("Claude isn't installed on the Pi yet, sir - "
+                "the escalation line is dead.")
+    token = _claude_token()
+    if not token:
+        return ("No Claude credentials, sir. Run `claude setup-token` on the "
+                "Pi and put TOKEN=<result> in ~/.jarvis_claude.")
+    persona = ("You are Jarvis, relaying an answer to your user over Telegram. "
+               "Address him as 'sir', dry understated wit at most once. Plain "
+               "text only - no markdown, no emoji. Be concise but complete; "
+               "this is a phone screen. You are the escalation path above a "
+               "small local model, so give a genuinely good answer.\n\n"
+               + build_context())
+    env = dict(os.environ, CLAUDE_CODE_OAUTH_TOKEN=token)
+    os.makedirs(CLAUDE_WORKDIR, exist_ok=True)
+    try:
+        r = subprocess.run(
+            [CLAUDE_BIN, "-p", q, "--append-system-prompt", persona],
+            cwd=CLAUDE_WORKDIR, env=env, capture_output=True, text=True,
+            timeout=CLAUDE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return ("Claude is taking his time, sir - I gave up after three "
+                "minutes. The local reflexes still work.")
+    except OSError as e:
+        return f"Couldn't launch Claude, sir ({e.__class__.__name__})."
+    if r.returncode != 0:
+        err = (r.stderr or r.stdout).strip()
+        if "usage limit" in err.lower() or "rate limit" in err.lower():
+            return "Claude says you've hit your usage limit, sir. Even genius has quotas."
+        return f"Claude declined, sir: {err[-250:] or 'no error output'}"
+    out = r.stdout.strip()
+    return out or "Claude returned an empty answer, sir. Anticlimactic."
+
+
 # ---- routing table: (name, [patterns], handler), checked in order ----
 def _rx(*pats):
     return [re.compile(p, re.I) for p in pats]
@@ -347,10 +406,17 @@ _GENERATIVE = re.compile(
     r"^(?:write|compose|draft|make up|tell me a|explain|why|who|translate|"
     r"summari[sz]e|generate|imagine|describe)\b", re.I)
 
+# Explicit escalation to Claude - checked before everything else so
+# "ask claude why ..." never falls into the generative guard or a fast path.
+_CLAUDE = re.compile(r"^(?:ask|hey)?\s*claude[,:]?\s+(.+)$", re.I | re.S)
+
 
 def route(text):
     """Pure pattern match, no I/O: (name, handler, match) or None."""
     t = text.strip()
+    m = _CLAUDE.match(t)
+    if m:
+        return "claude", h_claude, m
     if _GENERATIVE.search(t):
         return None
     for name, pats, handler in INTENTS:
