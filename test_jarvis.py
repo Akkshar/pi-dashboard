@@ -37,6 +37,9 @@ CASES = [
     ("brief me", "news"),
     # study timer
     ("start a timer for physics", "timer_start"),
+    ("set a timer for 2 minutes", "timer_start"),
+    ("set a timer for maths", "timer_start"),
+    ("run a timer for German", "timer_start"),
     ("stop the timer", "timer_stop"),
     ("how long did I study today", "study_stats"),
     ("is the timer running", "timer_status"),

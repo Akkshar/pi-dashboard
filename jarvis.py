@@ -56,7 +56,9 @@ SYSTEM_PROMPT = (
     "a phone, usually under 80 words. Plain text only - no markdown, no "
     "asterisks, no emoji. Use the CURRENT CONTEXT block for facts about his "
     "tasks, system and day; if the answer isn't there and you don't know it, "
-    "say so plainly. Never invent deadlines, numbers or news."
+    "say so plainly. Never invent deadlines, numbers or news. Never say you "
+    "are 'not programmed' for something or remark on your own limitations - "
+    "simply answer, or say you don't know."
 )
 
 Reply = collections.namedtuple("Reply", "text route")
@@ -246,6 +248,11 @@ def h_news(text, m):
 def h_timer_start(text, m):
     sub = re.search(r"\b(?:for|on)\s+([\w][\w &+-]{1,30}?)\s*$", text, re.I)
     subject = sub.group(1).strip() if sub else "General"
+    # "set a timer for 2 minutes" = countdown request; these are study stopwatches
+    if re.fullmatch(r"\d+\s*(?:s(?:ec(?:ond)?s?)?|m(?:in(?:ute)?s?)?|h(?:ou)?rs?)\.?",
+                    subject, re.I):
+        return ("I keep study stopwatches, sir, not egg timers. Name a subject - "
+                "say 'start a timer for German' - and I shall clock it.")
     _post(STUDY + "/api/timer/start", {"subject": subject}, "studyhub")
     note = "" if sub else " (No subject named, so it's logged as General.)"
     return f"Timer running for {subject}, sir. Do focus.{note}"
@@ -373,8 +380,8 @@ INTENTS = [
                       r"cat-?\d?|fat)\b"),
      h_deadlines),
     ("todo_list", _rx(r"\b(?:to-?dos?|reminders?)\b"), h_todo_list),
-    ("timer_start", _rx(r"\b(?:start|begin)\b.*\b(?:timer|study(?:ing)?|study session)\b",
-                        r"\b(?:start|begin)\b.*\btimer\b"),
+    ("timer_start", _rx(r"\b(?:start|begin|set|run)\b.*\b(?:timer|study(?:ing)?|study session)\b",
+                        r"\b(?:start|begin|set|run)\b.*\btimer\b"),
      h_timer_start),
     ("timer_stop", _rx(r"\b(?:stop|end|finish|done with)\b.*\b(?:timer|studying)\b"),
      h_timer_stop),
