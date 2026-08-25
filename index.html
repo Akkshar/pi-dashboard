@@ -64,6 +64,12 @@
   #pwrPop, #wifiPop { bottom:16px; }
   #speedPop .t, #pwrPop .t, #wifiPop .t { font-size:.66rem; opacity:.7; margin-bottom:4px; }
   #netRow, #pwrRow, #wifiRow { cursor:pointer; }
+  #sysCard h2 { display:flex; align-items:center; }
+  #wakeChip { cursor:pointer; margin-left:auto; font-size:.68rem; letter-spacing:0; text-transform:none;
+    background:rgba(91,140,255,0.25); border:1px solid rgba(91,140,255,0.4);
+    border-radius:10px; padding:2px 8px; white-space:nowrap; }
+  #wakeChip.ok { background:rgba(60,160,90,0.3); border-color:rgba(120,255,160,0.45); }
+  #wakeChip.bad { background:rgba(160,60,60,0.3); border-color:rgba(255,120,120,0.45); }
   .wopt { font-size:.74rem; padding:6px 8px; border-radius:8px; cursor:pointer; margin-top:4px;
     background:rgba(255,255,255,0.07); border:1px solid transparent; }
   .wopt.cur { background:rgba(91,140,255,0.3); border-color:rgba(91,140,255,0.5); cursor:default; }
@@ -178,7 +184,7 @@
       <div id="forecast"></div>
     </div>
     <div class="widget" id="sysCard">
-      <h2>System</h2>
+      <h2>System <span id="wakeChip">💻 wake</span></h2>
       <div class="row"><span>CPU</span><span id="cpuPct">—</span></div>
       <div class="bar"><i id="cpuBar"></i></div>
       <div class="row"><span>Temp · Fan</span><span><span id="cpuTemp">—</span> · <span id="fanRpm">—</span></span></div>
@@ -615,6 +621,20 @@
     try{ const r = await (await fetch('/backlight')).json(); if(r.pct!=null){ dimmed = r.pct <= 40; updateDimBtn(); } }catch(e){}
   }
   refreshDim(); setInterval(refreshDim,30000);
+
+  // wake chip: tap fires wake-on-lan magic packets at the laptop
+  const wakeChip = document.getElementById('wakeChip');
+  let wakeBusy = false;
+  wakeChip.addEventListener('click', async ()=>{
+    if (wakeBusy) return; wakeBusy = true;
+    wakeChip.textContent = '…';
+    try{
+      const r = await fetch('/wake', {method:'POST'});
+      wakeChip.textContent = r.ok ? '✓ sent' : '✗ failed';
+      wakeChip.classList.add(r.ok ? 'ok' : 'bad');
+    }catch(e){ wakeChip.textContent = '✗ failed'; wakeChip.classList.add('bad'); }
+    setTimeout(()=>{ wakeChip.textContent = '💻 wake'; wakeChip.classList.remove('ok','bad'); wakeBusy = false; }, 2500);
+  });
 </script>
 </body>
 </html>

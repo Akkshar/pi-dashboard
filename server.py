@@ -274,6 +274,27 @@ def power():
     return jsonify({"ok": False})
 
 
+LAPTOP_MACS = ["58:11:22:DD:6A:91", "C4:BD:E5:BB:1E:1C"]  # ethernet, wifi (same as pibot)
+
+
+@app.post("/wake")
+def wake():
+    # wake-on-lan for the laptop; harmless if it's already awake, so unlike
+    # /power this needs no localhost guard
+    import socket
+    for target in ("172.16.99.255", "255.255.255.255"):
+        for mac in LAPTOP_MACS:
+            pkt = b"\xff" * 6 + bytes.fromhex(mac.replace(":", "")) * 16
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            try:
+                s.sendto(pkt, (target, 9))
+            except OSError:
+                pass
+            s.close()
+    return jsonify({"ok": True})
+
+
 @app.get("/net")
 def net():
     do = request.args.get("do")
