@@ -38,6 +38,11 @@ jobs:
 
       - name: Smoke check
         run: |
+          # poll up to 20s: a slow restart must not read as a deploy failure
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:8080/stats >/dev/null && break
+            sleep 1
+          done
           curl -sf http://127.0.0.1:8080/stats > /dev/null
           curl -sf http://127.0.0.1:8080/ | grep -q sysCard
           systemctl is-active dashboard pibot
