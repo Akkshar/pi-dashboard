@@ -1,0 +1,27 @@
+# Cowrie SSH honeypot. Listens on 2222; hostel-LAN (wlan0) :22 scans are
+# REDIRECTed here by an nftables rule in ufw before.rules, so attackers see a
+# fake shell while real sshd stays on :22 for the wire + tailscale only.
+# JSON session logs → the cowrie-var volume, parsed by ~/honeypot/report.sh.
+services:
+  cowrie:
+    image: cowrie/cowrie:latest
+    container_name: cowrie
+    restart: unless-stopped
+    # host networking (not published ports) so Cowrie sees the REAL attacker
+    # source IP — docker's userland proxy would otherwise SNAT every attacker
+    # to the bridge gateway (172.20.0.1), destroying the forensics value.
+    # Binds 2222 on the host; ufw scopes who can reach it.
+    network_mode: host
+    volumes:
+      - cowrie-etc:/cowrie/cowrie-git/etc
+      - cowrie-var:/cowrie/cowrie-git/var
+    # cap log growth on the tight SD card
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  cowrie-etc:
+  cowrie-var:

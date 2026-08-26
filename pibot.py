@@ -296,6 +296,18 @@ def cmd_wake():
     return "Magic packets sent over the wire + wifi."
 
 
+def cmd_honeypot():
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["python3", "/home/screenrpi/honeypot/honeypot-report.py", "--since", "24", "--top", "5"],
+            capture_output=True, text=True, timeout=40,
+        ).stdout.strip()
+        return out or "No honeypot activity in the last 24h."
+    except Exception as e:
+        return f"Honeypot report unavailable: {e}"
+
+
 def handle(text):
     t = text.strip()
     if t.startswith("/status"):
@@ -318,6 +330,8 @@ def handle(text):
         return cmd_portal(t[7:].strip())
     if t.startswith("/net"):
         return cmd_net(t[4:].strip())
+    if t.startswith("/honeypot"):
+        return cmd_honeypot()
     if t.startswith("/wake"):
         return cmd_wake()
     if t.startswith("/dim"):
