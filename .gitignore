@@ -1,7 +1,11 @@
-# personal / runtime data — don't publish
-todos.json
-speedlog.jsonl
-__pycache__/
 digest.json
-powerlog.jsonl
+digest.log
 heartbeat
+.morning_brief_date
+morning_brief.log
+# personal / runtime data — don't publish
+powerlog.jsonl
+__pycache__/
+.speed_alert_ts
+speedlog.jsonl
+todos.json
