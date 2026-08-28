@@ -1,9 +1,9 @@
 #!/bin/bash
 # net_failover.sh - auto-join the iPhone hotspot ONLY after R-VIT has been
-# unreachable for FAILOVER_OFFLINE_SECS (default 15 min), and auto-return to
-# R-VIT once it genuinely looks recovered. Manual hotspot switches (dashboard
-# popover / pibot /net) are never auto-reverted: we only return when the
-# .net_failover_state file says WE made the switch.
+# unreachable for FAILOVER_OFFLINE_SECS (default 15 min). USER RULE: the Pi
+# NEVER auto-leaves the hotspot — when R-VIT looks recovered after an
+# auto-failover, we send one Telegram nudge and leave switching back to the
+# user (/net rvit or the dashboard WiFi row).
 #
 # Runs as the net-failover systemd service. Log: ~/net_failover.log
 
@@ -72,7 +72,8 @@ while true; do
 
     if [ "$cur" = "iphone-hotspot" ]; then
         offline_since=0
-        grep -q auto "$STATE" 2>/dev/null || continue   # manual switch: not ours to revert
+        # never auto-leave the hotspot; after OUR failover, nudge once on recovery
+        [ "$(cat "$STATE" 2>/dev/null)" = "auto" ] || continue
         now=$(date +%s)
         [ $((now - last_return)) -lt "$RETURN_IVL" ] && continue
         last_return=$now
@@ -80,17 +81,10 @@ while true; do
         if rvit_good; then
             good_scans=$((good_scans + 1))
             if [ "$good_scans" -ge 2 ]; then
-                log "R-VIT looks recovered (2 good scans) - trying autoreturn"
                 good_scans=0
-                "$NS" autoreturn >/dev/null 2>&1
-                sleep 5
-                if [ "$(wlan_conn)" = "R-VIT" ] && online; then
-                    rm -f "$STATE"
-                    log "back on R-VIT"
-                    tg "✅ R-VIT recovered — Pi is back on hostel WiFi"
-                else
-                    log "autoreturn did not stick, staying on hotspot"
-                fi
+                echo auto-notified > "$STATE"
+                log "R-VIT looks recovered - notified user (no auto-switch by design)"
+                tg "📶 R-VIT looks back up. Pi is staying on your hotspot — send /net rvit or tap the dashboard WiFi row to switch back."
             fi
         else
             good_scans=0
@@ -122,7 +116,7 @@ while true; do
         if [ "$(wlan_conn)" = "iphone-hotspot" ] && online; then
             echo auto > "$STATE"
             log "failover to hotspot OK"
-            tg "⚠️ R-VIT down ${mins} min — Pi auto-switched to your hotspot. It will hop back when R-VIT recovers."
+            tg "⚠️ R-VIT down ${mins} min — Pi auto-switched to your hotspot. I'll ping you when R-VIT looks back (no auto-switch back)."
         else
             log "hotspot join failed (netswitch fell back) - next attempt in $((JOIN_RETRY/60)) min"
         fi
