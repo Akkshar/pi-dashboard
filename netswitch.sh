@@ -1,7 +1,9 @@
 #!/bin/bash
-# Manual WiFi switcher: hostel R-VIT <-> iPhone hotspot.
-# The hotspot is NEVER joined automatically (profile autoconnect is off) - only
-# through this script, via the dashboard WiFi row or pibot /net. The autoreturn
+# WiFi switcher: hostel R-VIT <-> iPhone hotspot.
+# The hotspot is NEVER joined by NetworkManager on its own (profile autoconnect
+# is off) - only through this script: dashboard WiFi row, pibot /net, or the
+# laptop's hotspot-sync task ("hotspot laptop" = the laptop just joined the
+# hotspot, so the Pi follows it). Leaving the hotspot is always manual. The autoreturn
 # cron (just after curfew ends) sends us back to R-VIT so mobile data doesn't
 # keep burning overnight.
 RVIT="R-VIT"
@@ -25,7 +27,7 @@ case "$1" in
     ;;
   hotspot)
     [ "$(current)" = "$HOTSPOT" ] && { say "already on hotspot"; exit 0; }
-    say "switching to hotspot (manual)"
+    say "switching to hotspot (${2:-manual})"
     sudo nmcli device wifi rescan 2>/dev/null; sleep 2
     if sudo nmcli -w 25 con up "$HOTSPOT" >/dev/null 2>&1; then
       say "on hotspot"
