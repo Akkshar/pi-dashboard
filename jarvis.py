@@ -146,8 +146,11 @@ def h_todo_add(text, m):
     item = (m.group(1) or "").strip(" .!,")
     if not item:
         return "Add what, precisely, sir?"
-    todos = _post(DASH + "/todos", {"action": "add", "text": item},
-                  "dashboard")["todos"]
+    r = _post(DASH + "/todos", {"action": "add", "text": item}, "dashboard")
+    if r.get("error"):
+        return f"I'm afraid the list is full, sir ({r['error']}). Clear some finished items first."
+    item = (r.get("added") or {}).get("text", item)   # as stored (server caps length)
+    todos = r["todos"]
     n = sum(1 for t in todos if not t.get("done"))
     return _pick(f"Noted, sir: '{item}'. The list stands at {n}.",
                  f"Added '{item}'. That's {n} outstanding, sir.",

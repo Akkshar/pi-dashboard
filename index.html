@@ -73,7 +73,8 @@
   .wopt { font-size:.74rem; padding:6px 8px; border-radius:8px; cursor:pointer; margin-top:4px;
     background:rgba(255,255,255,0.07); border:1px solid transparent; }
   .wopt.cur { background:rgba(91,140,255,0.3); border-color:rgba(91,140,255,0.5); cursor:default; }
-  #newsCard { position:fixed; right:16px; top:16px; bottom:16px; width:340px; display:flex; flex-direction:column; }
+  /* News 300px wide leaves the Reminders column 206px at 800px (was 166px: a 86px text column) */
+  #newsCard { position:fixed; right:16px; top:16px; bottom:16px; width:300px; display:flex; flex-direction:column; }
   #briefList { list-style:none; flex:1; overflow-y:auto; margin-top:4px; }
   #briefList li { font-size:.84rem; line-height:1.4; padding:5px 0 5px 15px; position:relative; opacity:.95;
     border-bottom:1px solid rgba(255,255,255,0.08); }
@@ -81,16 +82,23 @@
   #briefList li::before { content:'▪'; position:absolute; left:2px; color:#9db8ff; }
 
   #remCard {
-    position:fixed; left:262px; right:372px; top:16px; bottom:64px;
+    position:fixed; left:262px; right:332px; top:16px; bottom:64px;
     display:flex; flex-direction:column;
   }
-  #remList { list-style:none; flex:1; overflow-y:auto; margin-top:2px; }
+  #remList { list-style:none; flex:1; overflow-y:auto; overflow-x:hidden; margin-top:2px;
+    scrollbar-width:thin; scrollbar-color:rgba(255,255,255,0.25) transparent; }
   #remList li { display:flex; align-items:flex-start; gap:8px; padding:6px 2px;
     border-bottom:1px solid rgba(255,255,255,0.1); font-size:.85rem; cursor:pointer; }
   #remList li:last-child { border-bottom:none; }
-  #remList .txt { flex:1; min-width:0; word-break:break-word; overflow-wrap:anywhere; }
+  /* pre-line keeps Telegram line breaks; clamp so one long paste can't fill the card
+     (full text in the title tooltip and in Telegram /todos) */
+  #remList .txt { flex:1; min-width:0; overflow-wrap:anywhere; white-space:pre-line; line-height:1.35;
+    display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; }
   #remList li.done .txt { text-decoration:line-through; opacity:.5; }
-  #remList .del { opacity:.5; padding:0 4px; flex:none; }
+  #remList .del { opacity:.5; padding:0 4px; flex:none; position:relative; border-radius:6px; }
+  /* bigger touch target without widening the row */
+  #remList .del::after { content:''; position:absolute; inset:-6px -2px -6px -14px; }  /* grows left, into the row */
+  #remList .del.arm { opacity:1; background:rgba(255,80,80,0.5); }
   #remForm { display:flex; gap:6px; margin-top:8px; }
   #remInput { flex:1; min-width:0; background:rgba(255,255,255,0.1);
     border:1px solid rgba(255,255,255,0.2); border-radius:10px; color:#fff;
@@ -100,8 +108,7 @@
     border-radius:10px; color:#fff; padding:8px 14px; font-size:1rem; cursor:pointer; }
 
   #remCard h2 { display:flex; align-items:center; gap:6px; }
-  #remCard h2 .hint { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  #askOpen { cursor:pointer; font-size:.68rem; letter-spacing:0; text-transform:none;
+  #askOpen { margin-left:auto; cursor:pointer; font-size:.68rem; letter-spacing:0; text-transform:none;
     background:rgba(91,140,255,0.25); border:1px solid rgba(91,140,255,0.4);
     border-radius:10px; padding:2px 8px; white-space:nowrap; }
 
@@ -134,7 +141,7 @@
   #chatSend:disabled { opacity:.45; cursor:default; }
 
   #btnRow {
-    position:fixed; left:262px; right:372px; bottom:16px;
+    position:fixed; left:262px; right:332px; bottom:16px;
     display:flex; justify-content:center; gap:10px; z-index:5;
   }
   #powerBtn {
@@ -214,10 +221,10 @@
   </div>
 
   <div class="widget" id="remCard">
-    <h2>Reminders <span class="hint">· tap to check off</span><span id="askOpen">🧠 Ask</span></h2>
+    <h2>Reminders <span id="askOpen">🧠 Ask</span></h2>
     <ul id="remList"></ul>
     <form id="remForm">
-      <input id="remInput" type="text" placeholder="Add a reminder…" autocomplete="off">
+      <input id="remInput" type="text" placeholder="Add reminder" autocomplete="off" maxlength="200">
       <button id="remAdd" type="submit">+</button>
     </form>
   </div>
@@ -475,10 +482,25 @@
 
   // ---- reminders ----
   const remList = document.getElementById('remList');
+  const remInput = document.getElementById('remInput');
+  const REM_PH = remInput.placeholder;
+  // returns {todos, added?, error?}
   async function remPost(body){
     const r = await fetch('/todos', {method:'POST',
       headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-    return (await r.json()).todos;
+    return r.json();
+  }
+  // Long links read as host/…/last-segment; the full text stays in the tooltip.
+  function shortLinks(s){
+    return s.replace(/https?:\/\/\S+/g, u=>{
+      try{
+        const x = new URL(u);
+        const host = x.hostname.replace(/^www\./, '');
+        const segs = x.pathname.split('/').filter(Boolean);
+        if(!segs.length) return host;
+        return host + (segs.length > 1 ? '/…/' : '/') + segs[segs.length-1];
+      }catch(e){ return u; }
+    });
   }
   function renderRem(ts){
     remList.innerHTML = '';
@@ -486,25 +508,44 @@
       remList.innerHTML = '<li style="opacity:.5;cursor:default">Nothing yet — add one below</li>';
       return;
     }
-    ts.forEach(t=>{
+    // Open first, newest on top; done items sink below (newest first) so they
+    // can never bury open ones. Stored order (oldest first) is unchanged.
+    [...ts].sort((a,b)=> (a.done - b.done) || (b.id - a.id)).forEach(t=>{
       const li = document.createElement('li');
       if(t.done) li.classList.add('done');
-      const txt = document.createElement('span'); txt.className = 'txt'; txt.textContent = t.text;
+      const txt = document.createElement('span'); txt.className = 'txt';
+      txt.textContent = shortLinks(t.text); txt.title = t.text;
       const del = document.createElement('span'); del.className = 'del'; del.textContent = '✕';
       li.appendChild(txt); li.appendChild(del);
-      li.addEventListener('click', async ()=>{ try{ renderRem(await remPost({action:'toggle', id:t.id})); }catch(e){} });
-      del.addEventListener('click', async (ev)=>{ ev.stopPropagation(); try{ renderRem(await remPost({action:'delete', id:t.id})); }catch(e){} });
+      li.addEventListener('click', async ()=>{ try{ renderRem((await remPost({action:'toggle', id:t.id})).todos); }catch(e){} });
+      // Two taps, like the Off button: the first arms (turns red) for 3s, the second deletes.
+      del.addEventListener('click', async (ev)=>{
+        ev.stopPropagation();
+        if(!del.classList.contains('arm')){
+          del.classList.add('arm');
+          setTimeout(()=>del.classList.remove('arm'), 3000);
+          return;
+        }
+        try{ renderRem((await remPost({action:'delete', id:t.id})).todos); }catch(e){}
+      });
       remList.appendChild(li);
     });
   }
   async function remRefresh(){ try{ renderRem((await (await fetch('/todos')).json()).todos); }catch(e){} }
   document.getElementById('remForm').addEventListener('submit', async (ev)=>{
     ev.preventDefault();
-    const inp = document.getElementById('remInput');
-    const v = inp.value.trim();
+    const v = remInput.value.trim();
     if(!v) return;
-    inp.value = '';
-    try{ renderRem(await remPost({action:'add', text:v})); }catch(e){}
+    remInput.value = '';
+    try{
+      const j = await remPost({action:'add', text:v});
+      if(j.error){   // 100 open reminders: say so, then hand the text back
+        remInput.placeholder = 'List full';
+        setTimeout(()=>{ remInput.placeholder = REM_PH; if(!remInput.value) remInput.value = v; }, 4000);
+      }
+      renderRem(j.todos);
+      remList.scrollTop = 0;   // the new item renders at the top
+    }catch(e){}
   });
   remRefresh(); setInterval(remRefresh, 60000);
 

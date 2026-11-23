@@ -321,8 +321,12 @@ def handle(text):
     if t.startswith("/todo "):
         added = t[6:].strip()
         if added:
-            dash_post("/todos", {"action": "add", "text": added})
-            return f"Added: {added}"
+            r = dash_post("/todos", {"action": "add", "text": added})
+            if r.get("error"):
+                return f"Not added: {r['error']}. Delete some done reminders first."
+            saved = (r.get("added") or {}).get("text", added)
+            cut = " (cut to 200 characters)" if saved != added else ""
+            return f"Added{cut}: {saved}"
         return "Usage: /todo buy detergent"
     if t.startswith("/deadline "):
         return cmd_deadline_add(t[10:].strip())

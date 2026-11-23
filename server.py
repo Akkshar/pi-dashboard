@@ -136,10 +136,30 @@ def load_todos():
         return []
 
 
+MAX_TODOS = 100
+TODO_TEXT_MAX = 200   # index.html #remInput maxlength matches this
+
+
+def trim_todos(todos):
+    """Keep at most MAX_TODOS by dropping the oldest *done* items.
+    Open reminders are never dropped; todos_post refuses adds when all are open."""
+    extra = len(todos) - MAX_TODOS
+    if extra <= 0:
+        return todos
+    drop = set()
+    for t in todos:                       # stored oldest-first
+        if extra == 0:
+            break
+        if t.get("done"):
+            drop.add(t["id"])
+            extra -= 1
+    return [t for t in todos if t["id"] not in drop]
+
+
 def save_todos(todos):
     try:
         with open(TODOFILE, "w") as f:
-            json.dump(todos[-100:], f)
+            json.dump(todos, f)
     except Exception:
         pass
 
@@ -242,17 +262,24 @@ def todos_post():
     data = request.get_json(silent=True) or {}
     todos = load_todos()
     act = data.get("action")
+    out = {}
     if act == "add" and data.get("text", "").strip():
-        todos.append({"id": int(time.time() * 1000),
-                      "text": data["text"].strip()[:200], "done": False})
+        if sum(1 for t in todos if not t.get("done")) >= MAX_TODOS:
+            # Full of open reminders: refuse rather than silently lose one.
+            return jsonify({"todos": todos, "error": f"list full ({MAX_TODOS} open)"})
+        item = {"id": int(time.time() * 1000),
+                "text": data["text"].strip()[:TODO_TEXT_MAX], "done": False}
+        todos.append(item)
+        out["added"] = item                 # what was stored (may be truncated)
     elif act == "toggle":
         for t in todos:
             if t["id"] == data.get("id"):
                 t["done"] = not t["done"]
     elif act == "delete":
         todos = [t for t in todos if t["id"] != data.get("id")]
+    todos = trim_todos(todos)
     save_todos(todos)
-    return jsonify({"todos": todos})
+    return jsonify({"todos": todos, **out})   # the list exactly as saved
 
 
 @app.get("/backlight")

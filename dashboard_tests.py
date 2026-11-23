@@ -153,6 +153,10 @@ with sync_playwright() as p:
     row = page.locator("#remList li", has_text=marker)
     check("reminder added via UI", row.count() == 1)
     if row.count():
+        check("new reminder renders at the top", page.locator("#remList li").first.text_content().startswith(marker))
+        row.locator(".del").click()          # first tap arms the delete
+        page.wait_for_timeout(200)
+        check("delete needs a second tap", row.count() == 1)
         row.locator(".del").click()
         page.wait_for_timeout(800)
         check("reminder deleted via UI", page.locator("#remList li", has_text=marker).count() == 0)
